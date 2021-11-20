@@ -131,12 +131,105 @@ int llopen(char port[20], bool aMode) {
 
 int llwrite(int fd, char *buffer, int length) {
     /* write() informacao (I) */
+    int res;
+    //struct sigaction sa,old;
+    //sigemptyset(&sa.sa_mask);
+    //sa.sa_handler = alarm_handler;
+    //sa.sa_flags = 0;
+    //sigaction(SIGALRM, &sa, &old);
+    //reset();
+    uc bcc2 = calculate_bcc2(buffer, length);
+    int bcc2_size = 1;
+    int info_length = length + bcc2_size;
+    uc *info = malloc(sizeof(uc) * (info_length));
+    memcpy(info, buffer, length);
+    memcpy(&info[length], &bcc2, sizeof(uc) * bcc2_size);
+    uc *stuffed_data = execute_stuffing(info, &info_length);
+    uc *frameData = malloc(sizeof(uc) * 5);
+    int sent = 0;
+    int received_status;
+    int numAttempts = 0;
+    while (!sent) {
+        while (numAttempts < 3) {
+            numAttempts++;
+            if ((res = send_info_frame(fd, create_information_plot(sender_seq, stuffed_data, info_length),
+                                       info_length + 5)) < 0) {
+                perror("Error while writing frame\n");
+            }
+            alarm(3);
+            received_status = receive_su_frame(fd, frameData, EM_CMD, r_ready, TRANSMITTER);
+            alarm(0);
+            if (received_status == 3) {
+                printf("\nRejected frame! Resending...\n");
+                continue;
+            } else if (received_status == 0) {
+                continue;
+            }
+            if (!check_su_frame(frameData, r_ready))
+                continue;
+            sent = 1;
+            break;
+        }
+        if (numAttempts >= 3) {
+            printf("Maximum attempts exceeded!\n");
+            return -1;
+        }
+    }
+    free(stuffed_data);
+    free(frameData);
+    free(info);
+    //sigaction(SIGALRM,&old,NULL);
+    update_seq();
+    return res;
 
 }
 
 int llread(int fd, char *buffer) {
     /* read() informacao (I) */
+    uc *frameData = (uc *) malloc(
+            sizeof(uc) * (BYTES_PER_PACKAGE + INFO_LENGTH) * 2), *final_frame, *stuffed_data, *destuffed_data;
 
+    int rejected = 0;
+    int real_size = 0, data_size;//,rand;
+    uc *ready_frame = create_su_frame(EM_CMD, r_ready);
+    // reset();
+    int numAttempts = 0;
+    while (numAttempts < 3) {
+        //rand = random()%2;
+        rejected = 0;
+        alarm(3);
+        if (!receive_info_frame(fd, frameData, &real_size)) {
+            alarm(0);
+            send_su_frame(fd, create_su_frame(EM_CMD, r_rej));
+            rejected = 1;
+            continue;
+        }
+        alarm(0);
+        final_frame = fit_frame(frameData, real_size);
+        stuffed_data = retrieve_info_frame_data(final_frame, real_size, &data_size);
+        destuffed_data = execute_destuffing(stuffed_data, &data_size);
+        uc received_bcc2 = destuffed_data[data_size - 1];
+//        uc calculated_bcc2 = rand == 1 ? 0 : calculate_bcc2(destuffed_data,data_size-1);
+        uc calculated_bcc2 = calculate_bcc2(destuffed_data, data_size - 1);
+        if (received_bcc2 != calculated_bcc2) {
+            printf("\nBCC2 not recognized\n");
+            rejected = 1;
+            send_su_frame(fd, create_su_frame(EM_CMD, r_rej));
+            continue;
+        }
+        send_su_frame(fd, ready_frame);
+        if (!rejected) {
+            memcpy(buffer, destuffed_data, data_size - 1);
+            free(frameData);
+            free(final_frame);
+            free(stuffed_data);
+            free(destuffed_data);
+            update_seq();
+            return data_size - 1;
+        }
+        return -2;
+    }
+    return -1;
 }
 
 int llclose(int fd) {
@@ -175,6 +268,16 @@ int main(int argc, char **argv) {
 
     int fd = llopen(linkLayer1.port, modo);
     printf("descritor: %d", fd);
+
+    //strncpy(buffer, "Amanda", 6);
+    if (modo) {
+        char *buffer = "Ama~nda";
+        llwrite(fd, buffer, 7);
+    } else {
+        char *buffer;
+        llread(fd, buffer);
+        printf("Recebido: %s", buffer);
+    }
     llclose(fd);
     return 1;
 }
