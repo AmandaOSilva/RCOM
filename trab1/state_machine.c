@@ -27,8 +27,10 @@
 
 
 //FRAME FLAG
-#define FR_FLAG 0x7e //01111101
+#define FR_FLAG 0x7e
 #define ESC_FLAG 0x7d
+#define FR_SUB 0x5e
+#define ESC_SUB 0x5d
 
 
 //INDEXES
@@ -106,7 +108,7 @@ int receive_su_frame(int fd, uc *frame, uc addr, uc cmd, uc mode) {
         }
         switch (set_machine) {
             case START:
-                printf("START STATE: %02x\n",input);
+                printf("START STATE: %02x\n", input);
                 frame[FLAG_IND] = input;
                 if (input == FR_FLAG)
                     set_machine = FLAG_RCV;
@@ -114,7 +116,7 @@ int receive_su_frame(int fd, uc *frame, uc addr, uc cmd, uc mode) {
                 break;
 
             case FLAG_RCV:
-                printf("FLAG STATE: %02x\n",input);
+                printf("FLAG STATE: %02x\n", input);
                 frame[ADDR_IND] = input;
                 if (input == addr)
                     set_machine = A_RCV;
@@ -123,7 +125,7 @@ int receive_su_frame(int fd, uc *frame, uc addr, uc cmd, uc mode) {
                 break;
 
             case A_RCV:
-                printf("A STATE: %02x\n",input);
+                printf("A STATE: %02x\n", input);
                 frame[CTRL_IND] = input;
                 if (input == r_ready) {
                     if (input == cmd) {
@@ -153,7 +155,7 @@ int receive_su_frame(int fd, uc *frame, uc addr, uc cmd, uc mode) {
                     break;
                 }
             case C_RCV:
-                printf("C STATE: %02x\n",input);
+                printf("C STATE: %02x\n", input);
                 frame[BCC_IND] = input;
 
                 if (input == (addr ^ (res == 2 ? cmd : (res == 3 ? r_rej : cmd)))) {
@@ -167,7 +169,7 @@ int receive_su_frame(int fd, uc *frame, uc addr, uc cmd, uc mode) {
                 break;
 
             case BCC_OK:
-                printf("BCC STATE: %02x\n",input);
+                printf("BCC STATE: %02x\n", input);
                 frame[END_FLAG_IND] = input;
                 if (input == FR_FLAG) {
                     alarm(0);
@@ -198,12 +200,12 @@ uc *execute_stuffing(uc *fr, unsigned int *size) {
     int offset = 0;
     for (size_t i = 0; i < *size; i++) {
         if (fr[i] == FR_FLAG) {
-            result[i + offset] = 0x7d;
-            result[i + offset + 1] = 0x5e;
+            result[i + offset] = ESC_FLAG;
+            result[i + offset + 1] = FR_SUB;
             offset += 1;
         } else if (fr[i] == ESC_FLAG) {
-            result[offset + i] = 0x7d;
-            result[(1) + offset + i] = 0x5d;
+            result[offset + i] = ESC_FLAG;
+            result[1 + offset + i] = ESC_SUB;
             offset += 1;
         } else {
             result[(i) + offset] = fr[i];
@@ -218,10 +220,10 @@ uc *execute_destuffing(uc *fr, unsigned int *size) {
     unsigned int num_escapes = 0, new_size;
     for (int i = 0; i < *size; i++) {
         if (i < (*size - 1)) {
-            if (fr[i] == 0x7d && fr[i + 1] == 0x5e)
+            if (fr[i] == ESC_FLAG && fr[i + 1] == FR_SUB)
                 num_escapes++;
 
-            if (fr[i] == 0x7d && fr[i + 1] == 0x5d)
+            if (fr[i] == ESC_FLAG && fr[i + 1] == ESC_SUB)
                 num_escapes++;
         }
     }
@@ -230,10 +232,10 @@ uc *execute_destuffing(uc *fr, unsigned int *size) {
     result = malloc(sizeof(uc) * new_size);
     int offset = 0;
     for (size_t i = 0; i < new_size;) {
-        if (fr[i + offset] == 0x7d && fr[i + 1 + offset] == 0x5e) {
+        if (fr[i + offset] == ESC_FLAG && fr[i + 1 + offset] == FR_SUB) {
             result[i++] = FR_FLAG;
             offset += 1;
-        } else if (fr[i + offset] == 0x7d && fr[i + 1 + offset] == 0x5d) {
+        } else if (fr[i + offset] == ESC_FLAG && fr[i + 1 + offset] == ESC_SUB) {
             result[i++] = ESC_FLAG;
             offset += 1;
         } else
@@ -270,12 +272,14 @@ int receive_info_frame(int fd, uc *frame, unsigned int *total_size) {
         frame[set_machine] = input;
         switch (set_machine) {
             case START:
+                printf("START STATE: %02x\n", input);
                 if (input == FR_FLAG) {
                     set_machine = FLAG_RCV;
                 }
                 break;
 
             case FLAG_RCV:
+                printf("FLAG STATE: %02x\n", input);
                 if (input == EM_CMD)
                     set_machine = A_RCV;
                 else if (input != FR_FLAG)
@@ -283,6 +287,7 @@ int receive_info_frame(int fd, uc *frame, unsigned int *total_size) {
                 break;
 
             case A_RCV:
+                printf("A STATE: %02x\n", input);
                 if (input == sender_seq)
                     set_machine = C_RCV;
                 else if (input == FR_FLAG)
@@ -292,6 +297,7 @@ int receive_info_frame(int fd, uc *frame, unsigned int *total_size) {
                 break;
 
             case C_RCV:
+                printf("C STATE: %02x\n", input);
                 if (input == (EM_CMD ^ sender_seq)) {
                     set_machine = BCC_OK;
                     break;
@@ -304,6 +310,7 @@ int receive_info_frame(int fd, uc *frame, unsigned int *total_size) {
 
 
             default:
+                printf("INFO: %02x\n", input);
                 if (input == FR_FLAG) {
                     alarm(0);
                     verify = 1;
