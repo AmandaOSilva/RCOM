@@ -89,15 +89,6 @@ int llopen(char port[20], bool aMode) {
         while (TRUE) {
             /* enviar SET e esperar UA */
 
-//            linkLayer1.frame[0] = FR_FLAG;
-//            linkLayer1.frame[1] = 0x03; // comando enviado pelo emissor
-//            linkLayer1.frame[2] = 0x03; // SET
-//            linkLayer1.frame[3] = 0xFF; //TODO: BCC1, que ainda precisa ser calculado e depois vertificado do outro lado)
-//            linkLayer1.frame[4] = FR_FLAG;
-//            res = write(fd, linkLayer1.frame,  sizeof(uc) * 5);
-//            printf("enviados: %d\n", res);
-//            print_su_frame(linkLayer1.frame, sizeof(uc) * 5);
-
             numAttempts++;
 
             printf("Abrindo em modo Transmitter\n");
@@ -107,9 +98,7 @@ int llopen(char port[20], bool aMode) {
             }
 
             printf("Tentativa: %d\n", numAttempts);
-            uc *frameSET = create_su_frame(EM_CMD, SET);
-            print_su_frame(frameSET, sizeof(uc) * 5);
-            send_su_frame(fd, frameSET);
+            send_su_frame(fd, create_su_frame(EM_CMD, SET));
             printf("Terminou o send\n");
 
             // Esperar o UA
@@ -151,17 +140,30 @@ int llread(int fd, char *buffer) {
 }
 
 int llclose(int fd) {
+    uc *receivedFrame = malloc(sizeof(uc) * 5);
     if (mode == TRANSMITTER) {
-        /* enviar DISC, esperar DISC e enviar UA e fecha conexao */
-
         printf("Fechando em modo Trasmitter\n");
+        /* enviar DISC, esperar DISC e enviar UA e fecha conexao */
+        send_su_frame(fd, create_su_frame(EM_CMD, DISC));
+        // Esperar o UA
+        if (!receive_su_frame(fd, receivedFrame, EM_CMD, DISC, TRANSMITTER))
+            exit(-1);
+        send_su_frame(fd, create_su_frame(EM_CMD, UA));
+        close(fd);
+        printf("Trasmitter fechado com sucesso\n");
     } else { // RECEIVER
         /* espera DISC, envia DISC, espera UA e fecha conexao */
-        printf("Fechando em modo Receiver \n");
+        printf("Fechando em modo Receiver\n");
+        if (!receive_su_frame(fd, receivedFrame, EM_CMD, DISC, RECEIVER))
+            exit(-1);
+        send_su_frame(fd, create_su_frame(EM_CMD, DISC));
+        // Esperar o UA
+        send_su_frame(fd, create_su_frame(EM_CMD, UA));
+        close(fd);
+        printf("Receiver fechado com sucesso\n");
     }
     return 1;
 }
-
 
 int main(int argc, char **argv) {
     strncpy(linkLayer1.port, "/dev/ttyS10", 20);
