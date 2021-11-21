@@ -258,27 +258,27 @@ int llclose(int fd) {
     return 1;
 }
 
-int main(int argc, char **argv) {
-    strncpy(linkLayer1.port, "/dev/ttyS10", 20);
-    int modo = TRANSMITTER;
-    if ((strcmp("1", argv[1]) == 0)) {
-        modo = RECEIVER;
-        strncpy(linkLayer1.port, "/dev/ttyS11", 20);
-    }
-
-    int fd = llopen(linkLayer1.port, modo);
-    printf("descritor: %d", fd);
-
-    //strncpy(buffer, "Amanda", 6);
-    if (modo) {
-        char *buffer = "Ama~nda";
-        llwrite(fd, buffer, 7);
-    } else {
-        char *buffer;
-        llread(fd, buffer);
-        printf("Recebido: %s", buffer);
-    }
-    llclose(fd);
-    return 1;
-}
+//int main(int argc, char **argv) {
+//    strncpy(linkLayer1.port, "/dev/ttyS10", 20);
+//    int modo = TRANSMITTER;
+//    if ((strcmp("1", argv[1]) == 0)) {
+//        modo = RECEIVER;
+//        strncpy(linkLayer1.port, "/dev/ttyS11", 20);
+//    }
+//
+//    int fd = llopen(linkLayer1.port, modo);
+//    printf("descritor: %d", fd);
+//
+//    //strncpy(buffer, "Amanda", 6);
+//    if (modo) {
+//        char *buffer = "Ama~nda";
+//        llwrite(fd, buffer, 7);
+//    } else {
+//        char *buffer;
+//        llread(fd, buffer);
+//        printf("Recebido: %s", buffer);
+//    }
+//    llclose(fd);
+//    return 1;
+//}
 

@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_SIZE 64000
+#define MAX_SIZE 65536
 #define PORT_SIZE 20
 #define TRANSMITTER 0
 #define RECEIVER 1
