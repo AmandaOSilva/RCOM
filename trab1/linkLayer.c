@@ -1,9 +1,6 @@
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <fcntl.h>
 #include <termios.h>
 #include <stdio.h>
-
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -12,7 +9,6 @@
 //#include "utils.h"
 
 #define BAUDRATE B38400
-#define _POSIX_SOURCE 1 /* POSIX compliant source */
 #define FALSE 0
 #define TRUE 1
 
@@ -203,7 +199,7 @@ int llread(int fd, char *buffer) {
         stuffed_data = retrieve_info_frame_data(final_frame, real_size, &data_size);
         destuffed_data = execute_destuffing(stuffed_data, &data_size);
         unsigned char received_bcc2 = destuffed_data[data_size - 1];
-//        uc calculated_bcc2 = rand == 1 ? 0 : calculate_bcc2(destuffed_data,data_size-1);
+//      unsigned char calculated_bcc2 = rand == 1 ? 0 : calculate_bcc2(destuffed_data,data_size-1);
         unsigned char calculated_bcc2 = calculate_bcc2(destuffed_data, data_size - 1);
         if (received_bcc2 != calculated_bcc2) {
             printf("\nBCC2 not recognized\n");
