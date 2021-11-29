@@ -16,9 +16,7 @@
 #define FALSE 0
 #define TRUE 1
 
-
-#define START_FLAG 0x02
-#define END_FLAG 0x03
+#define MAX_ATTEMPS  3
 
 //FRAME FLAG
 //#define FR_FLAG 0x7e
@@ -84,7 +82,7 @@ int llopen(char port[20], bool aMode) {
     }
 
     int numAttempts = 0;
-    uc *receivedFrame = malloc(sizeof(uc) * 5);
+    unsigned char *receivedFrame = malloc(5);
     if (mode == TRANSMITTER) {
         while (TRUE) {
             /* enviar SET e esperar UA */
@@ -98,14 +96,14 @@ int llopen(char port[20], bool aMode) {
             }
 
             printf("Tentativa: %d\n", numAttempts);
-            send_su_frame(fd, create_su_frame(EM_CMD, SET));
+            sendSupFrame(fd, EM_CMD, SET);
             printf("Terminou o send\n");
 
             // Esperar o UA
             if (!receive_su_frame(fd, receivedFrame, EM_CMD, UA, TRANSMITTER))
                 continue;
             printf("recebido\n"); //TODO retirar
-            if (!check_su_frame(receivedFrame, UA))
+            if (!(receivedFrame[CTRL_IND] == UA))
                 continue;
             printf("recebido UA\n"); //TODO retirar
             printf("Conexao estabelecida em modo Transmitter\n");
@@ -118,10 +116,10 @@ int llopen(char port[20], bool aMode) {
             if (!receive_su_frame(fd, receivedFrame, EM_CMD, SET, RECEIVER))
                 continue;
             printf("recebido\n"); //TODO retirar
-            if (!check_su_frame(receivedFrame, SET))
+            if (!(receivedFrame[CTRL_IND] == SET))
                 continue;
             printf("recebido set \n"); //TODO retirar
-            send_su_frame(fd, create_su_frame(EM_CMD, UA));
+            sendSupFrame(fd, EM_CMD, UA);
             printf("Conexao estabelecida em modo Receiver\n");
             break;
         }
@@ -130,34 +128,28 @@ int llopen(char port[20], bool aMode) {
 }
 
 int llwrite(int fd, char *buffer, int length) {
-    /* write() informacao (I) */
     int res;
-    //struct sigaction sa,old;
-    //sigemptyset(&sa.sa_mask);
-    //sa.sa_handler = alarm_handler;
-    //sa.sa_flags = 0;
-    //sigaction(SIGALRM, &sa, &old);
-    //reset();
-    uc bcc2 = calculate_bcc2(buffer, length);
+
+    unsigned char bcc2 = calculate_bcc2(buffer, length);
     int bcc2_size = 1;
     int info_length = length + bcc2_size;
-    uc *info = malloc(sizeof(uc) * (info_length));
+    unsigned char *info = malloc((info_length));
     memcpy(info, buffer, length);
-    memcpy(&info[length], &bcc2, sizeof(uc) * bcc2_size);
-    uc *stuffed_data = execute_stuffing(info, &info_length);
-    uc *frameData = malloc(sizeof(uc) * 5);
+    memcpy(&info[length], &bcc2, bcc2_size);
+    unsigned char *stuffed_data = execute_stuffing(info, &info_length);
+    unsigned char *frameData = malloc(5);
     int sent = 0;
     int received_status;
     int numAttempts = 0;
     while (!sent) {
         while (numAttempts < 3) {
             numAttempts++;
-            if ((res = send_info_frame(fd, create_information_plot(sender_seq, stuffed_data, info_length),
+            if ((res = send_info_frame(fd, create_information_plot(SEND_SEQ, stuffed_data, info_length),
                                        info_length + 5)) < 0) {
                 perror("Error while writing frame\n");
             }
             alarm(3);
-            received_status = receive_su_frame(fd, frameData, EM_CMD, r_ready, TRANSMITTER);
+            received_status = receive_su_frame(fd, frameData, EM_CMD, REC_READY, TRANSMITTER);
             alarm(0);
             if (received_status == 3) {
                 printf("\nRejected frame! Resending...\n");
@@ -165,7 +157,7 @@ int llwrite(int fd, char *buffer, int length) {
             } else if (received_status == 0) {
                 continue;
             }
-            if (!check_su_frame(frameData, r_ready))
+            if (!(frameData[CTRL_IND] == REC_READY))
                 continue;
             sent = 1;
             break;
@@ -181,17 +173,18 @@ int llwrite(int fd, char *buffer, int length) {
     //sigaction(SIGALRM,&old,NULL);
     update_seq();
     return res;
-
 }
 
 int llread(int fd, char *buffer) {
     /* read() informacao (I) */
-    uc *frameData = (uc *) malloc(
-            sizeof(uc) * (BYTES_PER_PACKAGE + INFO_LENGTH) * 2), *final_frame, *stuffed_data, *destuffed_data;
+    unsigned char *frameData = malloc(
+            BYTES_PER_PACKAGE * 2);
+    unsigned char *final_frame;
+    unsigned char *stuffed_data;
+    unsigned char *destuffed_data;
 
     int rejected = 0;
     int real_size = 0, data_size;//,rand;
-    uc *ready_frame = create_su_frame(EM_CMD, r_ready);
     // reset();
     int numAttempts = 0;
     while (numAttempts < 3) {
@@ -200,24 +193,25 @@ int llread(int fd, char *buffer) {
         alarm(3);
         if (!receive_info_frame(fd, frameData, &real_size)) {
             alarm(0);
-            send_su_frame(fd, create_su_frame(EM_CMD, r_rej));
+            sendSupFrame(fd, EM_CMD, REC_REJECTED);
             rejected = 1;
             continue;
         }
         alarm(0);
-        final_frame = fit_frame(frameData, real_size);
+        unsigned char *final_frame = malloc(real_size);
+        memcpy(final_frame, frameData, real_size);
         stuffed_data = retrieve_info_frame_data(final_frame, real_size, &data_size);
         destuffed_data = execute_destuffing(stuffed_data, &data_size);
-        uc received_bcc2 = destuffed_data[data_size - 1];
+        unsigned char received_bcc2 = destuffed_data[data_size - 1];
 //        uc calculated_bcc2 = rand == 1 ? 0 : calculate_bcc2(destuffed_data,data_size-1);
-        uc calculated_bcc2 = calculate_bcc2(destuffed_data, data_size - 1);
+        unsigned char calculated_bcc2 = calculate_bcc2(destuffed_data, data_size - 1);
         if (received_bcc2 != calculated_bcc2) {
             printf("\nBCC2 not recognized\n");
             rejected = 1;
-            send_su_frame(fd, create_su_frame(EM_CMD, r_rej));
+            sendSupFrame(fd, EM_CMD, REC_REJECTED);
             continue;
         }
-        send_su_frame(fd, ready_frame);
+        sendSupFrame(fd, EM_CMD, REC_READY);
         if (!rejected) {
             memcpy(buffer, destuffed_data, data_size - 1);
             free(frameData);
@@ -233,15 +227,15 @@ int llread(int fd, char *buffer) {
 }
 
 int llclose(int fd) {
-    uc *receivedFrame = malloc(sizeof(uc) * 5);
+    unsigned char *receivedFrame = malloc(5);
     if (mode == TRANSMITTER) {
         printf("Fechando em modo Trasmitter\n");
         /* enviar DISC, esperar DISC e enviar UA e fecha conexao */
-        send_su_frame(fd, create_su_frame(EM_CMD, DISC));
+        sendSupFrame(fd, EM_CMD, DISC);
         // Esperar o UA
         if (!receive_su_frame(fd, receivedFrame, EM_CMD, DISC, TRANSMITTER))
             exit(-1);
-        send_su_frame(fd, create_su_frame(EM_CMD, UA));
+        sendSupFrame(fd, EM_CMD, UA);
         close(fd);
         printf("Trasmitter fechado com sucesso\n");
     } else { // RECEIVER
@@ -249,36 +243,13 @@ int llclose(int fd) {
         printf("Fechando em modo Receiver\n");
         if (!receive_su_frame(fd, receivedFrame, EM_CMD, DISC, RECEIVER))
             exit(-1);
-        send_su_frame(fd, create_su_frame(EM_CMD, DISC));
+        sendSupFrame(fd, EM_CMD, DISC);
         // Esperar o UA
-        send_su_frame(fd, create_su_frame(EM_CMD, UA));
+        sendSupFrame(fd, EM_CMD, UA);
         close(fd);
         printf("Receiver fechado com sucesso\n");
     }
     return 1;
 }
 
-//int main(int argc, char **argv) {
-//    strncpy(linkLayer1.port, "/dev/ttyS10", 20);
-//    int modo = TRANSMITTER;
-//    if ((strcmp("1", argv[1]) == 0)) {
-//        modo = RECEIVER;
-//        strncpy(linkLayer1.port, "/dev/ttyS11", 20);
-//    }
-//
-//    int fd = llopen(linkLayer1.port, modo);
-//    printf("descritor: %d", fd);
-//
-//    //strncpy(buffer, "Amanda", 6);
-//    if (modo) {
-//        char *buffer = "Ama~nda";
-//        llwrite(fd, buffer, 7);
-//    } else {
-//        char *buffer;
-//        llread(fd, buffer);
-//        printf("Recebido: %s", buffer);
-//    }
-//    llclose(fd);
-//    return 1;
-//}
 

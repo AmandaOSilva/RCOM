@@ -9,38 +9,119 @@
 #include <unistd.h>
 #include <stdbool.h>
 #include "linkLayer.c"
+#include "appLayer.h"
+
+void sendControlPackage(const int fd, const char *filename, const int bufferSize, const int control) {
+    size_t filenameSize = strlen(filename);
+    int packageFrameSize = 1 + 4 + (2 + filenameSize); // controlo, tamanho e nome
+
+    printf("Tamanho do pacote: %d\n", packageFrameSize);
+    char *packageFrame = malloc(packageFrameSize);
+    packageFrame[0] = control;
+    //tamanho
+    packageFrame[1] = APP_PARAM_SIZE;
+    packageFrame[2] = 2;
+    packageFrame[3] = bufferSize / 256;
+    packageFrame[4] = bufferSize % 256;
+    printf("tamanho: %d, %d\n", bufferSize / 256, bufferSize % 256);
+    packageFrame[5] = APP_PARAM_NAME;
+    packageFrame[6] = filenameSize;
+    memcpy(&packageFrame[7], filename, filenameSize);
+    for (int i = 0; i < 10; ++i) {
+        printf(" %02x", packageFrame[i]);
+    }
+    printf("Nome: %s\n", filename);
+
+    llwrite(fd, packageFrame, packageFrameSize);
+}
+
+void sendDataPackage(const int fd, const char *buffer, const int packageSeq, const int packageSize) {
+    int packageFrameSize = 4 + packageSize; // controlo, tamanho e nome
+
+    printf("Tamanho do pacote: %d\n", packageFrameSize);
+    char *packageFrame = malloc(packageFrameSize);
+    packageFrame[0] = APP_DATA;
+    //tamanho
+    packageFrame[1] = packageSeq;
+    packageFrame[2] = packageSize / 256;
+    packageFrame[3] = packageSize % 256;
+    printf("tamanho: %d, %d\n", packageSize / 256, packageSize % 256);
+    memcpy(&packageFrame[4], buffer, packageSize);
+    for (int i = 0; i < 10; ++i) {
+        printf(" %02x", packageFrame[i]);
+    }
+    printf("\n");
+    llwrite(fd, packageFrame, packageFrameSize);
+}
+
+
+FILE *openFile(const char *filename, int *bufferSize) {
+    FILE *file = fopen(filename, "rb");
+
+    fseek(file, 0L, SEEK_END);
+    (*bufferSize) = ftell(file);
+    fseek(file, 0L, SEEK_SET);
+    return file;
+}
+
+void sendData(int fd, int bufferSize, FILE *file) {//Envia  dados
+//    printf(" \n");
+    int qtyPackage = 1;
+    int packageSize = BYTES_PER_PACKAGE - INFO_LENGTH;
+    if (bufferSize > packageSize) {
+        qtyPackage = bufferSize / packageSize;
+        if (bufferSize % packageSize != 0) qtyPackage++;
+    }
+    printf("BufferSize: %d\n", bufferSize);
+    printf("Quantidade de blocos: %d\n", qtyPackage);
+
+    for (int packageSeq = 1; packageSeq <= qtyPackage; ++packageSeq) {
+
+        if (packageSeq == qtyPackage)
+            packageSize = bufferSize % packageSize;
+        printf("Enviando: seq=%d, size=%d\n", packageSeq, packageSize);
+        char *buffer = malloc(packageSize);
+        //int fileD = fileno(file);
+        fread(buffer, packageSize, 1, file);
+        //read(fileD, &buffer, packageSize);
+        printf("Leu arquivo\n");
+        sendDataPackage(fd, buffer, packageSeq, packageSize);
+        free(buffer);
+//        for (int i = 0; i < bufferSize; i++) {
+//            read(fileD, &buffer[i], 1);
+//        }
+    }
+}
 
 int main(int argc, char **argv) {
     char *port = "/dev/ttyS10";
 
     int fd = llopen(port, TRANSMITTER);
-
-    FILE *file = fopen("pinguim.gif", "rb");
-    int fileD = fileno(file);
-    unsigned char *buffer = malloc(MAX_SIZE);
-    int i;
-    for (i = 0; i < MAX_SIZE; ++i) {
-        if (read(fileD, &buffer[i], 1) == -1) {
-            break;
-        }
+    if (fd < 0) {
+        perror(port);
+        exit(-1);
     }
-    int bufferSize = i;
-    int qtyBlock = 1;
-    if (bufferSize > BYTES_PER_PACKAGE) {
-        qtyBlock = bufferSize / BYTES_PER_PACKAGE;
-        if (bufferSize % BYTES_PER_PACKAGE != 0) qtyBlock++;
-    }
-    printf("BufferSize: %d\n", bufferSize);
-    printf("Quantidade de blocos: %d\n", qtyBlock);
-    unsigned char *dataFrame = malloc(BYTES_PER_PACKAGE);
-    for (int j = 0; j <= qtyBlock; ++j) {
-        memcpy(dataFrame, &buffer[j * BYTES_PER_PACKAGE], BYTES_PER_PACKAGE);
+    char *filename = argv[1];
+    int bufferSize;
 
-        printf("Enviando bloco: %d\n", j);
-        llwrite(fd, dataFrame, sizeof(dataFrame));
+    // abrirt arquivo
+    FILE *file = openFile(filename, &bufferSize);
+    if (file == NULL) {
+        return -1;
     }
-//    char *buffer = "Ama~nda";
 
+    //envia pacote START
+    sendControlPackage(fd, filename, bufferSize, APP_START);
+    // envia pacotes com os dados
+    sendData(fd, bufferSize, file);
+    // envia pacote de END
+    sendControlPackage(fd, filename, bufferSize, APP_END);
+
+    // Fecha conexao
     llclose(fd);
+    fclose(file);
     return 1;
 }
+
+
+

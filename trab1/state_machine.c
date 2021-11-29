@@ -5,17 +5,16 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_SIZE 65536
-#define PORT_SIZE 20
+#define MAX_SIZE 256 * 256 // 64KB
+#define BYTES_PER_PACKAGE 4 * 1024 // 4KB
+
 #define TRANSMITTER 0
 #define RECEIVER 1
-#define HEADER_SIZE 6
-#define BYTES_PER_PACKAGE 4500      // [Maximum] number of bytes per package sent
+
 #define INFO_LENGTH 4
 
 //ADDRESS CONSTANTS
 #define EM_CMD 0x03 //0b00000011
-#define RE_CMD 0x01 //
 
 //CONTROL CONSTANTS
 #define SET 0x03  //0b00000011 COMMAND
@@ -25,13 +24,11 @@
 #define RJ(X) (X==0? 0b00000001 : 0b10000001) //ANSWER
 #define II(X) (X==0? 0b00000000 : 0b01000000) //ANSWER
 
-
 //FRAME FLAG
 #define FR_FLAG 0x7e
 #define ESC_FLAG 0x7d
 #define FR_SUB 0x5e
 #define ESC_SUB 0x5d
-
 
 //INDEXES
 #define FLAG_IND 0
@@ -40,14 +37,11 @@
 #define BCC_IND 3
 #define END_FLAG_IND 4
 
-
 #define DEBUG_READING_STATUS 0
 
-typedef unsigned char uc;
-
-uc sender_seq = II(0);
-uc r_ready = RR(1);
-uc r_rej = RJ(1);
+unsigned char SEND_SEQ = II(0);
+unsigned char REC_READY = RR(1);
+unsigned char REC_REJECTED = RJ(1);
 
 typedef enum SET_STATES {
     START,
@@ -61,38 +55,19 @@ extern int fail;
 
 int verify = 0;
 
-void print_su_frame(uc *fr, unsigned int size) {
-    for (int i = 0; i < size; i++) {
-        printf("%02x", fr[i]);
-    }
-    printf("--");
-    for (int i = 0; i < size; i++) {
-        printf("%c", fr[i]);
-    }
-    printf("\n");
-}
-
-uc *create_su_frame(uc addr, uc cmd) {
-    uc *frame = malloc(sizeof(uc) * 5);
+void sendSupFrame(int fd, unsigned char addr, unsigned char cmd) {
+    unsigned char *frame = malloc(5);
     frame[FLAG_IND] = FR_FLAG;
     frame[CTRL_IND] = cmd;
     frame[ADDR_IND] = addr;
     frame[BCC_IND] = frame[ADDR_IND] ^ frame[CTRL_IND];
     frame[END_FLAG_IND] = FR_FLAG;
-    return frame;
-}
-
-void send_su_frame(int fd, uc *frame) {
-    write(fd, frame, sizeof(uc) * 5);
+    write(fd, frame, 5);
     free(frame);
 }
 
-int check_su_frame(uc *frame, uc ctrl) {
-    return frame[CTRL_IND] == ctrl;
-}
-
-int receive_su_frame(int fd, uc *frame, uc addr, uc cmd, uc mode) {
-    uc input;
+int receive_su_frame(int fd, unsigned char *frame, unsigned char addr, unsigned char cmd, unsigned char mode) {
+    unsigned char input;
     int res = 1;
     verify = 0;
     if ((mode == TRANSMITTER) && (cmd == UA || cmd == DISC)) {
@@ -102,13 +77,13 @@ int receive_su_frame(int fd, uc *frame, uc addr, uc cmd, uc mode) {
     int fail = 0;
     set_states set_machine = START;
     while (!verify) {
-        if (read(fd, &input, sizeof(uc)) == -1) {
+        if (read(fd, &input, sizeof(unsigned char)) == -1) {
             printf("\nTIMEOUT!\tRetrying connection!\n");
             return 0;
         }
         switch (set_machine) {
             case START:
-                printf("START STATE: %02x\n", input);
+                //printf("START STATE: %02x\n", input);
                 frame[FLAG_IND] = input;
                 if (input == FR_FLAG)
                     set_machine = FLAG_RCV;
@@ -116,7 +91,7 @@ int receive_su_frame(int fd, uc *frame, uc addr, uc cmd, uc mode) {
                 break;
 
             case FLAG_RCV:
-                printf("FLAG STATE: %02x\n", input);
+                //printf("FLAG STATE: %02x\n", input);
                 frame[ADDR_IND] = input;
                 if (input == addr)
                     set_machine = A_RCV;
@@ -125,9 +100,9 @@ int receive_su_frame(int fd, uc *frame, uc addr, uc cmd, uc mode) {
                 break;
 
             case A_RCV:
-                printf("A STATE: %02x\n", input);
+                //printf("A STATE: %02x\n", input);
                 frame[CTRL_IND] = input;
-                if (input == r_ready) {
+                if (input == REC_READY) {
                     if (input == cmd) {
                         set_machine = C_RCV;
                         res = 2;
@@ -136,8 +111,8 @@ int receive_su_frame(int fd, uc *frame, uc addr, uc cmd, uc mode) {
                     else
                         set_machine = START;
                     break;
-                } else if (input == r_rej) {
-                    if (r_ready == cmd) {
+                } else if (input == REC_REJECTED) {
+                    if (REC_READY == cmd) {
                         set_machine = C_RCV;
                         res = 3;
                     } else if (input == FR_FLAG)
@@ -155,10 +130,10 @@ int receive_su_frame(int fd, uc *frame, uc addr, uc cmd, uc mode) {
                     break;
                 }
             case C_RCV:
-                printf("C STATE: %02x\n", input);
+                //printf("C STATE: %02x\n", input);
                 frame[BCC_IND] = input;
 
-                if (input == (addr ^ (res == 2 ? cmd : (res == 3 ? r_rej : cmd)))) {
+                if (input == (addr ^ (res == 2 ? cmd : (res == 3 ? REC_REJECTED : cmd)))) {
                     set_machine = BCC_OK;
                     break;
                 }
@@ -169,7 +144,7 @@ int receive_su_frame(int fd, uc *frame, uc addr, uc cmd, uc mode) {
                 break;
 
             case BCC_OK:
-                printf("BCC STATE: %02x\n", input);
+                //printf("BCC STATE: %02x\n", input);
                 frame[END_FLAG_IND] = input;
                 if (input == FR_FLAG) {
                     alarm(0);
@@ -189,14 +164,14 @@ int receive_su_frame(int fd, uc *frame, uc addr, uc cmd, uc mode) {
 
 }
 
-uc *execute_stuffing(uc *fr, unsigned int *size) {
-    uc *result;
+unsigned char *execute_stuffing(unsigned char *fr, unsigned int *size) {
+    unsigned char *result;
     unsigned int num_escapes = 0, new_size;
     for (size_t i = 0; i < *size; i++)
         if (fr[i] == FR_FLAG || fr[i] == ESC_FLAG)
             num_escapes++;
     new_size = *size + num_escapes;
-    result = malloc(sizeof(uc) * new_size);
+    result = malloc(new_size);
     int offset = 0;
     for (size_t i = 0; i < *size; i++) {
         if (fr[i] == FR_FLAG) {
@@ -215,8 +190,8 @@ uc *execute_stuffing(uc *fr, unsigned int *size) {
     return result;
 }
 
-uc *execute_destuffing(uc *fr, unsigned int *size) {
-    uc *result;
+unsigned char *execute_destuffing(unsigned char *fr, unsigned int *size) {
+    unsigned char *result;
     unsigned int num_escapes = 0, new_size;
     for (int i = 0; i < *size; i++) {
         if (i < (*size - 1)) {
@@ -229,7 +204,7 @@ uc *execute_destuffing(uc *fr, unsigned int *size) {
     }
     new_size = *size - num_escapes;
     *size = new_size;
-    result = malloc(sizeof(uc) * new_size);
+    result = malloc(new_size);
     int offset = 0;
     for (size_t i = 0; i < new_size;) {
         if (fr[i + offset] == ESC_FLAG && fr[i + 1 + offset] == FR_SUB) {
@@ -244,8 +219,8 @@ uc *execute_destuffing(uc *fr, unsigned int *size) {
     return result;
 }
 
-uc *create_information_plot(uc ctrl, uc *data, int length) {
-    uc *frame = malloc(sizeof(uc) * (length + 5));
+unsigned char *create_information_plot(unsigned char ctrl, unsigned char *data, int length) {
+    unsigned char *frame = malloc((length + 5));
     frame[FLAG_IND] = FR_FLAG;
     frame[ADDR_IND] = EM_CMD;
     frame[CTRL_IND] = ctrl;
@@ -255,31 +230,31 @@ uc *create_information_plot(uc ctrl, uc *data, int length) {
     return frame;
 }
 
-int receive_info_frame(int fd, uc *frame, unsigned int *total_size) {
+int receive_info_frame(int fd, unsigned char *frame, unsigned int *total_size) {
     set_states set_machine = START;
     int res;
     verify = 0;
     int fail = 0;
-    uc input;
+    unsigned char input;
     unsigned int ind = 4, acc = 0, current = 0;
     while (!verify) {
         if (DEBUG_READING_STATUS == 1)
             printf("before info read...\n");
-        if (read(fd, &input, sizeof(uc)) == -1) {
+        if (read(fd, &input, sizeof(unsigned char)) == -1) {
             printf("\nTIMEOUT!\tRetrying connection!\n");
             return 0;
         }
         frame[set_machine] = input;
         switch (set_machine) {
             case START:
-                printf("START STATE: %02x\n", input);
+                //printf("START STATE: %02x\n", input);
                 if (input == FR_FLAG) {
                     set_machine = FLAG_RCV;
                 }
                 break;
 
             case FLAG_RCV:
-                printf("FLAG STATE: %02x\n", input);
+                //printf("FLAG STATE: %02x\n", input);
                 if (input == EM_CMD)
                     set_machine = A_RCV;
                 else if (input != FR_FLAG)
@@ -287,8 +262,8 @@ int receive_info_frame(int fd, uc *frame, unsigned int *total_size) {
                 break;
 
             case A_RCV:
-                printf("A STATE: %02x\n", input);
-                if (input == sender_seq)
+                //printf("A STATE: %02x\n", input);
+                if (input == SEND_SEQ)
                     set_machine = C_RCV;
                 else if (input == FR_FLAG)
                     set_machine = FLAG_RCV;
@@ -297,8 +272,8 @@ int receive_info_frame(int fd, uc *frame, unsigned int *total_size) {
                 break;
 
             case C_RCV:
-                printf("C STATE: %02x\n", input);
-                if (input == (EM_CMD ^ sender_seq)) {
+                //printf("C STATE: %02x\n", input);
+                if (input == (EM_CMD ^ SEND_SEQ)) {
                     set_machine = BCC_OK;
                     break;
                 }
@@ -310,7 +285,7 @@ int receive_info_frame(int fd, uc *frame, unsigned int *total_size) {
 
 
             default:
-                printf("INFO: %02x\n", input);
+                //  printf("INFO: %02x\n", input);
                 if (input == FR_FLAG) {
                     alarm(0);
                     verify = 1;
@@ -326,53 +301,47 @@ int receive_info_frame(int fd, uc *frame, unsigned int *total_size) {
     return 1;
 }
 
-uc calculate_bcc2(uc *data, unsigned int size) {
-    uc BCC2 = 0;
+unsigned char calculate_bcc2(unsigned char *data, unsigned int size) {
+    unsigned char BCC2 = 0;
     for (int i = 0; i < size; i++) {
         BCC2 ^= data[i];
     }
     return BCC2;
 }
 
-int check_bcc(uc candidate, uc *frame) {
+int check_bcc(unsigned char candidate, unsigned char *frame) {
     return candidate == frame[BCC_IND];
 }
 
-int check_bcc2(uc candidate, uc *data, unsigned int size) {
-    uc BCC2 = calculate_bcc2(data, size);
+int check_bcc2(unsigned char candidate, unsigned char *data, unsigned int size) {
+    unsigned char BCC2 = calculate_bcc2(data, size);
     return BCC2 == candidate;
 }
 
-uc *retrieve_info_frame_data(uc *frame, unsigned int frame_size, unsigned int *data_size) {
+unsigned char *retrieve_info_frame_data(unsigned char *frame, unsigned int frame_size, unsigned int *data_size) {
     *data_size = frame_size - 5;
-    uc *data = (unsigned char *) malloc(*data_size);
+    unsigned char *data = (unsigned char *) malloc(*data_size);
     data = memcpy(data, &frame[4], *data_size);
     return data;
 }
 
-int send_info_frame(int fd, uc *frame, unsigned int size) {
+int send_info_frame(int fd, unsigned char *frame, unsigned int size) {
     int res;
-    res = write(fd, frame, sizeof(uc) * size);
+    res = write(fd, frame, size);
     //print_su_frame(frame,size);
     free(frame);
     return res;
 }
 
-uc *fit_frame(uc *prev_frame, unsigned int total_size) {
-    uc *result = malloc(sizeof(uc) * total_size);
-    memcpy(result, prev_frame, sizeof(uc) * total_size);
-    return result;
-}
-
 void update_seq() {
-    if (sender_seq == II(0)) {
-        sender_seq = II(1);
-        r_ready = RR(0);
-        r_rej = RJ(0);
+    if (SEND_SEQ == II(0)) {
+        SEND_SEQ = II(1);
+        REC_READY = RR(0);
+        REC_REJECTED = RJ(0);
     } else {
-        sender_seq = II(0);
-        r_ready = RR(1);
-        r_rej = RJ(1);
+        SEND_SEQ = II(0);
+        REC_READY = RR(1);
+        REC_REJECTED = RJ(1);
     }
 }
 
