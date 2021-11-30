@@ -89,7 +89,7 @@ void sendData(int fd, int bufferSize, FILE *file) {//Envia  dados
 }
 
 int main(int argc, char **argv) {
-    char *port = "/dev/ttyS10";
+    char *port = "/dev/ttyS0";
 
     int fd = llopen(port, TRANSMITTER);
     if (fd < 0) {
@@ -99,7 +99,7 @@ int main(int argc, char **argv) {
     char *filename = argv[1];
     int bufferSize;
 
-    // abrirt arquivo
+    //abrirt arquivo
     FILE *file = openFile(filename, &bufferSize);
     if (file == NULL) {
         return -1;

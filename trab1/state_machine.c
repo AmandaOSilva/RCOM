@@ -66,7 +66,7 @@ void sendSupFrame(int fd, unsigned char addr, unsigned char cmd) {
     free(frame);
 }
 
-int receive_su_frame(int fd, unsigned char *frame, unsigned char addr, unsigned char cmd, unsigned char mode) {
+int receiveFrame(int fd, unsigned char *frame, unsigned char addr, unsigned char cmd, unsigned char mode) {
     unsigned char input;
     int res = 1;
     verify = 0;
@@ -164,7 +164,7 @@ int receive_su_frame(int fd, unsigned char *frame, unsigned char addr, unsigned 
 
 }
 
-unsigned char *execute_stuffing(unsigned char *fr, unsigned int *size) {
+unsigned char *stuffing(unsigned char *fr, unsigned int *size) {
     unsigned char *result;
     unsigned int num_escapes = 0, new_size;
     for (size_t i = 0; i < *size; i++)
@@ -190,7 +190,7 @@ unsigned char *execute_stuffing(unsigned char *fr, unsigned int *size) {
     return result;
 }
 
-unsigned char *execute_destuffing(unsigned char *fr, unsigned int *size) {
+unsigned char *destuffing(unsigned char *fr, unsigned int *size) {
     unsigned char *result;
     unsigned int num_escapes = 0, new_size;
     for (int i = 0; i < *size; i++) {
@@ -217,17 +217,6 @@ unsigned char *execute_destuffing(unsigned char *fr, unsigned int *size) {
             result[i++] = fr[i + offset];
     }
     return result;
-}
-
-unsigned char *create_information_plot(unsigned char ctrl, unsigned char *data, int length) {
-    unsigned char *frame = malloc((length + 5));
-    frame[FLAG_IND] = FR_FLAG;
-    frame[ADDR_IND] = EM_CMD;
-    frame[CTRL_IND] = ctrl;
-    frame[BCC_IND] = frame[ADDR_IND] ^ frame[CTRL_IND];
-    memcpy(&frame[4], data, length);
-    frame[4 + length] = FR_FLAG;
-    return frame;
 }
 
 int receive_info_frame(int fd, unsigned char *frame, unsigned int *total_size) {
@@ -307,15 +296,6 @@ unsigned char calculate_bcc2(unsigned char *data, unsigned int size) {
         BCC2 ^= data[i];
     }
     return BCC2;
-}
-
-int check_bcc(unsigned char candidate, unsigned char *frame) {
-    return candidate == frame[BCC_IND];
-}
-
-int check_bcc2(unsigned char candidate, unsigned char *data, unsigned int size) {
-    unsigned char BCC2 = calculate_bcc2(data, size);
-    return BCC2 == candidate;
 }
 
 unsigned char *retrieve_info_frame_data(unsigned char *frame, unsigned int frame_size, unsigned int *data_size) {

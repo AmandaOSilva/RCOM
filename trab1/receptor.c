@@ -67,7 +67,7 @@ int processDataPackage(const unsigned char *buffer, const int expectedSeq,int bu
 }
 
 int main(int argc, char **argv) {
-    char *port = "/dev/ttyS11";
+    char *port = "/dev/ttyS0";
     int fd = llopen(port, RECEIVER);
     char *filename = argv[1];
     FILE *file = fopen(filename, "wb");
@@ -77,7 +77,6 @@ int main(int argc, char **argv) {
     }
 
     unsigned char *buffer = malloc(BYTES_PER_PACKAGE);
-
     int control;
     int expectedSeq = 1;
     set_states_receive state = INIT;
