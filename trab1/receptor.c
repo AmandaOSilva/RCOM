@@ -77,6 +77,7 @@ int main(int argc, char **argv) {
     }
 
     unsigned char *buffer = malloc(BYTES_PER_PACKAGE);
+
     int control;
     int expectedSeq = 1;
     set_states_receive state = INIT;

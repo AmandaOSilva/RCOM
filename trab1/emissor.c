@@ -99,7 +99,7 @@ int main(int argc, char **argv) {
     char *filename = argv[1];
     int bufferSize;
 
-    //abrirt arquivo
+    // abrirt arquivo
     FILE *file = openFile(filename, &bufferSize);
     if (file == NULL) {
         return -1;

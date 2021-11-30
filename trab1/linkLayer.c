@@ -6,13 +6,20 @@
 #include <unistd.h>
 #include <stdbool.h>
 #include "state_machine.c"
+//#include "utils.h"
 
 #define BAUDRATE B38400
 #define FALSE 0
 #define TRUE 1
 
+#define MAX_ATTEMPS  3
+
+//FRAME FLAG
+//#define FR_FLAG 0x7e
+#define SCAPE 0x7d
 
 
+///
 //#define MAX_SIZE 512
 
 
@@ -36,7 +43,7 @@ int llopen(char port[20], bool aMode) {
     struct termios oldtio, newtio;
     printf("Modo: %d\n", mode);
 
-    int fd;
+    int fd, res, size;
     volatile int STOP = FALSE;
 
     fd = open(port, O_RDWR | O_NOCTTY);
@@ -55,10 +62,10 @@ int llopen(char port[20], bool aMode) {
     newtio.c_iflag = IGNPAR;
     newtio.c_oflag = 0;
 
-    /*Seta o modo  */
+    /* set input mode (non-canonical, no echo,...) */
     newtio.c_lflag = 0;
 
-    newtio.c_cc[VTIME] = 0;
+    newtio.c_cc[VTIME] = 0; /* inter-character timer unused */
     newtio.c_cc[VMIN] = 5;  /* blocking read until 5 chars received */
 
     cfsetispeed(&newtio, BAUDRATE);
@@ -89,7 +96,7 @@ int llopen(char port[20], bool aMode) {
             printf("Terminou o send\n");
 
             // Esperar o UA
-            if (!receiveFrame(fd, receivedFrame, EM_CMD, UA, TRANSMITTER))
+            if (!receive_su_frame(fd, receivedFrame, EM_CMD, UA, TRANSMITTER))
                 continue;
             printf("recebido\n"); //TODO retirar
             if (!(receivedFrame[CTRL_IND] == UA))
@@ -102,7 +109,7 @@ int llopen(char port[20], bool aMode) {
         printf("Abrindo em modo Receiver\n");
         /* espera o SET e devolve o UA */
         while (TRUE) {
-            if (!receiveFrame(fd, receivedFrame, EM_CMD, SET, RECEIVER))
+            if (!receive_su_frame(fd, receivedFrame, EM_CMD, SET, RECEIVER))
                 continue;
             printf("recebido\n"); //TODO retirar
             if (!(receivedFrame[CTRL_IND] == SET))
@@ -125,7 +132,7 @@ int llwrite(int fd, char *buffer, int length) {
     unsigned char *info = malloc((info_length));
     memcpy(info, buffer, length);
     memcpy(&info[length], &bcc2, bcc2_size);
-    unsigned char *stuffedData = stuffing(info, &info_length);
+    unsigned char *stuffed_data = execute_stuffing(info, &info_length);
     unsigned char *frameData = malloc(5);
     int sent = 0;
     int received_status;
@@ -133,19 +140,12 @@ int llwrite(int fd, char *buffer, int length) {
     while (!sent) {
         while (numAttempts < 3) {
             numAttempts++;
-            unsigned char *frame = malloc((info_length + 5));
-            frame[FLAG_IND] = FR_FLAG;
-            frame[ADDR_IND] = EM_CMD;
-            frame[CTRL_IND] = SEND_SEQ;
-            frame[BCC_IND] = frame[ADDR_IND] ^ frame[CTRL_IND];
-            memcpy(&frame[4], stuffedData, info_length);
-            frame[4 + info_length] = FR_FLAG;
-            if ((res = send_info_frame(fd, frame,
+            if ((res = send_info_frame(fd, create_information_plot(SEND_SEQ, stuffed_data, info_length),
                                        info_length + 5)) < 0) {
                 perror("Error while writing frame\n");
             }
             alarm(3);
-            received_status = receiveFrame(fd, frameData, EM_CMD, REC_READY, TRANSMITTER);
+            received_status = receive_su_frame(fd, frameData, EM_CMD, REC_READY, TRANSMITTER);
             alarm(0);
             if (received_status == 3) {
                 printf("\nRejected frame! Resending...\n");
@@ -163,7 +163,7 @@ int llwrite(int fd, char *buffer, int length) {
             return -1;
         }
     }
-    free(stuffedData);
+    free(stuffed_data);
     free(frameData);
     free(info);
     //sigaction(SIGALRM,&old,NULL);
@@ -175,8 +175,9 @@ int llread(int fd, char *buffer) {
     /* read() informacao (I) */
     unsigned char *frameData = malloc(
             BYTES_PER_PACKAGE * 2);
-    unsigned char *stuffedData;
-    unsigned char *destuffedData;
+    unsigned char *final_frame;
+    unsigned char *stuffed_data;
+    unsigned char *destuffed_data;
 
     int rejected = 0;
     int real_size = 0, data_size;//,rand;
@@ -195,11 +196,11 @@ int llread(int fd, char *buffer) {
         alarm(0);
         unsigned char *final_frame = malloc(real_size);
         memcpy(final_frame, frameData, real_size);
-        stuffedData = retrieve_info_frame_data(final_frame, real_size, &data_size);
-        destuffedData = destuffing(stuffedData, &data_size);
-        unsigned char received_bcc2 = destuffedData[data_size - 1];
-//      unsigned char calculated_bcc2 = rand == 1 ? 0 : calculate_bcc2(destuffedData,data_size-1);
-        unsigned char calculated_bcc2 = calculate_bcc2(destuffedData, data_size - 1);
+        stuffed_data = retrieve_info_frame_data(final_frame, real_size, &data_size);
+        destuffed_data = execute_destuffing(stuffed_data, &data_size);
+        unsigned char received_bcc2 = destuffed_data[data_size - 1];
+//      unsigned char calculated_bcc2 = rand == 1 ? 0 : calculate_bcc2(destuffed_data,data_size-1);
+        unsigned char calculated_bcc2 = calculate_bcc2(destuffed_data, data_size - 1);
         if (received_bcc2 != calculated_bcc2) {
             printf("\nBCC2 not recognized\n");
             rejected = 1;
@@ -208,11 +209,11 @@ int llread(int fd, char *buffer) {
         }
         sendSupFrame(fd, EM_CMD, REC_READY);
         if (!rejected) {
-            memcpy(buffer, destuffedData, data_size - 1);
+            memcpy(buffer, destuffed_data, data_size - 1);
             free(frameData);
             free(final_frame);
-            free(stuffedData);
-            free(destuffedData);
+            free(stuffed_data);
+            free(destuffed_data);
             update_seq();
             return data_size - 1;
         }
@@ -228,7 +229,7 @@ int llclose(int fd) {
         /* enviar DISC, esperar DISC e enviar UA e fecha conexao */
         sendSupFrame(fd, EM_CMD, DISC);
         // Esperar o UA
-        if (!receiveFrame(fd, receivedFrame, EM_CMD, DISC, TRANSMITTER))
+        if (!receive_su_frame(fd, receivedFrame, EM_CMD, DISC, TRANSMITTER))
             exit(-1);
         sendSupFrame(fd, EM_CMD, UA);
         close(fd);
@@ -236,7 +237,7 @@ int llclose(int fd) {
     } else { // RECEIVER
         /* espera DISC, envia DISC, espera UA e fecha conexao */
         printf("Fechando em modo Receiver\n");
-        if (!receiveFrame(fd, receivedFrame, EM_CMD, DISC, RECEIVER))
+        if (!receive_su_frame(fd, receivedFrame, EM_CMD, DISC, RECEIVER))
             exit(-1);
         sendSupFrame(fd, EM_CMD, DISC);
         // Esperar o UA
