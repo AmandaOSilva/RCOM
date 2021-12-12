@@ -60,7 +60,7 @@ FILE *openFile(const char *filename, int *bufferSize) {
 }
 
 void sendData(int fd, int bufferSize, FILE *file) {//Envia  dados
-//    printf(" \n");
+
     int qtyPackage = 1;
     int packageSize = BYTES_PER_PACKAGE - INFO_LENGTH;
     if (bufferSize > packageSize) {
@@ -76,27 +76,27 @@ void sendData(int fd, int bufferSize, FILE *file) {//Envia  dados
             packageSize = bufferSize % packageSize;
         printf("Enviando: seq=%d, size=%d\n", packageSeq, packageSize);
         char *buffer = malloc(packageSize);
-        //int fileD = fileno(file);
         fread(buffer, packageSize, 1, file);
-        //read(fileD, &buffer, packageSize);
         printf("Leu arquivo\n");
         sendDataPackage(fd, buffer, packageSeq, packageSize);
         free(buffer);
-//        for (int i = 0; i < bufferSize; i++) {
-//            read(fileD, &buffer[i], 1);
-//        }
+
     }
 }
 
 int main(int argc, char **argv) {
-    char *port = "/dev/ttyS0";
+    if (argc <2) {
+        perror("Usage: ./emissor <port> <filename>");
+        exit(-1);
+    }
+    char *port = argv[1];
 
     int fd = llopen(port, TRANSMITTER);
     if (fd < 0) {
         perror(port);
         exit(-1);
     }
-    char *filename = argv[1];
+    char *filename = argv[2];
     int bufferSize;
 
     // abrirt arquivo

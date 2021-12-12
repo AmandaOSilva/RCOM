@@ -20,9 +20,12 @@
 #define SET 0x03  //0b00000011 COMMAND
 #define DISC 0x0b //0b00001011 COMMAND
 #define UA 0x07   //0b00000111 ANSWER
-#define RR(X) (X==0? 0b00000101 : 0b10000101) //ANSWER
-#define RJ(X) (X==0? 0b00000001 : 0b10000001) //ANSWER
-#define II(X) (X==0? 0b00000000 : 0b01000000) //ANSWER
+#define RR0 0b00000101 //ANSWER
+#define RR1 0b10000101 //ANSWER
+#define REJ0 0b00000001 //ANSWER
+#define REJ1 0b10000001 //ANSWER
+#define II0 0b00000000 //ANSWER
+#define II1 0b01000000 //ANSWER
 
 //FRAME FLAG
 #define FR_FLAG 0x7e
@@ -39,9 +42,9 @@
 
 #define DEBUG_READING_STATUS 0
 
-unsigned char SEND_SEQ = II(0);
-unsigned char REC_READY = RR(1);
-unsigned char REC_REJECTED = RJ(1);
+unsigned char SEND_SEQ = II0;
+unsigned char REC_READY = RR1;
+unsigned char REC_REJECTED = REJ1;
 
 typedef enum SET_STATES {
     START,
@@ -51,7 +54,7 @@ typedef enum SET_STATES {
     BCC_OK
 } set_states;
 
-extern int fail;
+
 
 int verify = 0;
 
@@ -66,7 +69,7 @@ void sendSupFrame(int fd, unsigned char addr, unsigned char cmd) {
     free(frame);
 }
 
-int receive_su_frame(int fd, unsigned char *frame, unsigned char addr, unsigned char cmd, unsigned char mode) {
+int receiveSupFrame(int fd, unsigned char *frame, unsigned char addr, unsigned char cmd, unsigned char mode) {
     unsigned char input;
     int res = 1;
     verify = 0;
@@ -164,7 +167,7 @@ int receive_su_frame(int fd, unsigned char *frame, unsigned char addr, unsigned 
 
 }
 
-unsigned char *execute_stuffing(unsigned char *fr, unsigned int *size) {
+unsigned char *stuffing(unsigned char *fr, unsigned int *size) {
     unsigned char *result;
     unsigned int num_escapes = 0, new_size;
     for (size_t i = 0; i < *size; i++)
@@ -190,7 +193,7 @@ unsigned char *execute_stuffing(unsigned char *fr, unsigned int *size) {
     return result;
 }
 
-unsigned char *execute_destuffing(unsigned char *fr, unsigned int *size) {
+unsigned char *destuffing(unsigned char *fr, unsigned int *size) {
     unsigned char *result;
     unsigned int num_escapes = 0, new_size;
     for (int i = 0; i < *size; i++) {
@@ -219,18 +222,7 @@ unsigned char *execute_destuffing(unsigned char *fr, unsigned int *size) {
     return result;
 }
 
-unsigned char *create_information_plot(unsigned char ctrl, unsigned char *data, int length) {
-    unsigned char *frame = malloc((length + 5));
-    frame[FLAG_IND] = FR_FLAG;
-    frame[ADDR_IND] = EM_CMD;
-    frame[CTRL_IND] = ctrl;
-    frame[BCC_IND] = frame[ADDR_IND] ^ frame[CTRL_IND];
-    memcpy(&frame[4], data, length);
-    frame[4 + length] = FR_FLAG;
-    return frame;
-}
-
-int receive_info_frame(int fd, unsigned char *frame, unsigned int *total_size) {
+int receiveInfoFrame(int fd, unsigned char *frame, unsigned int *total_size) {
     set_states set_machine = START;
     int res;
     verify = 0;
@@ -301,47 +293,23 @@ int receive_info_frame(int fd, unsigned char *frame, unsigned int *total_size) {
     return 1;
 }
 
-unsigned char calculate_bcc2(unsigned char *data, unsigned int size) {
-    unsigned char BCC2 = 0;
+unsigned char calculateBCC(unsigned char *data, unsigned int size) {
+    unsigned char BCC = 0;
     for (int i = 0; i < size; i++) {
-        BCC2 ^= data[i];
+        BCC ^= data[i];
     }
-    return BCC2;
+    return BCC;
 }
 
-int check_bcc(unsigned char candidate, unsigned char *frame) {
-    return candidate == frame[BCC_IND];
-}
-
-int check_bcc2(unsigned char candidate, unsigned char *data, unsigned int size) {
-    unsigned char BCC2 = calculate_bcc2(data, size);
-    return BCC2 == candidate;
-}
-
-unsigned char *retrieve_info_frame_data(unsigned char *frame, unsigned int frame_size, unsigned int *data_size) {
-    *data_size = frame_size - 5;
-    unsigned char *data = (unsigned char *) malloc(*data_size);
-    data = memcpy(data, &frame[4], *data_size);
-    return data;
-}
-
-int send_info_frame(int fd, unsigned char *frame, unsigned int size) {
-    int res;
-    res = write(fd, frame, size);
-    //print_su_frame(frame,size);
-    free(frame);
-    return res;
-}
-
-void update_seq() {
-    if (SEND_SEQ == II(0)) {
-        SEND_SEQ = II(1);
-        REC_READY = RR(0);
-        REC_REJECTED = RJ(0);
+void updateSeq() {
+    if (SEND_SEQ == II0) {
+        SEND_SEQ = II1;
+        REC_READY = RR0;
+        REC_REJECTED = REJ0;
     } else {
-        SEND_SEQ = II(0);
-        REC_READY = RR(1);
-        REC_REJECTED = RJ(1);
+        SEND_SEQ = II0;
+        REC_READY = RR1;
+        REC_REJECTED = REJ1;
     }
 }
 

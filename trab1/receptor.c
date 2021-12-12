@@ -16,10 +16,6 @@ int processControlPackage(unsigned char *buffer, const int expectControl, int co
         printf(" %02x", buffer[i]);
     }
     printf("\n");
-    for (int i = 0; i < 20; ++i) {
-        printf(" %d", buffer[i]);
-    }
-    printf("\n");
     if (control == expectControl) {
         // obtem o tamanho do arquivo
         // ja  sabemos de antemao  que primeiro paramento e o tamanho do arquivo e que ele deve usar 2 octetos
@@ -39,7 +35,7 @@ int processControlPackage(unsigned char *buffer, const int expectControl, int co
         int filenameSize = buffer[6];
         char *filename  = malloc(filenameSize);
         memcpy(filename, &buffer[7], filenameSize);
-        printf("Nome: %s\n", filename);
+        printf("Nome original : %s\n", filename);
         return 0;
     } else {
         printf("Pacote rejeitado. Esperado: %d, Recebido: %d\n", expectControl, control);
@@ -67,9 +63,14 @@ int processDataPackage(const unsigned char *buffer, const int expectedSeq,int bu
 }
 
 int main(int argc, char **argv) {
-    char *port = "/dev/ttyS0";
+    if (argc <2) {
+        perror("Usage: ./receptor <port> <filename>");
+        exit(-1);
+    }
+    char *port = argv[1];
+
     int fd = llopen(port, RECEIVER);
-    char *filename = argv[1];
+    char *filename = argv[2];
     FILE *file = fopen(filename, "wb");
     if (file == NULL) {
         ferror(file);
@@ -107,12 +108,12 @@ int main(int argc, char **argv) {
                 } else if (control == APP_END) {
                     if (processControlPackage(buffer, APP_END, control) == 0) {
                         state = END;
+                        printf("Arquivo salvo com sucesso: %s", filename);
                     }
                     continue;
                 }
             }
         }
-        printf("State: %d", state);
     }
     printf(" \n");
     llclose(fd);
