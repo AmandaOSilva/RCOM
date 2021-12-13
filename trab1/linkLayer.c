@@ -5,28 +5,12 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdbool.h>
-#include "stateMachine.c"
+#include "state_machine.c"
+
 #define BAUDRATE B38400
 #define FALSE 0
 #define TRUE 1
 
-
-
-
-
-/// Tamanho  512
-
-
-typedef struct {
-    char port[20]; /*Dispositivo /dev/ttySx, x = 0, 1*/
-    int baudRate; /*Velocidade de transmissão*/
-    unsigned int sequenceNumber; /*Número de sequência da trama: 0, 1*/
-    unsigned int timeout; /*Valor do temporizador: 1 s*/
-    unsigned int numTransmissions; /*Número de tentativas em caso de falha*/
-    char frame[MAX_SIZE]; /*Trama*/
-} linkLayer;
-
-linkLayer linkLayer1;
 bool mode;
 
 int llopen(char port[20], bool aMode) {
@@ -56,8 +40,8 @@ int llopen(char port[20], bool aMode) {
     /* set input mode (non-canonical, no echo,...) */
     newtio.c_lflag = 0;
 
-    newtio.c_cc[VTIME] = 0; /* inter-character timer unused */
-    newtio.c_cc[VMIN] = 5;  /* blocking read until 5 chars received */
+    newtio.c_cc[VTIME] = 1; /* inter-character timer unused */
+    newtio.c_cc[VMIN] = 0;  /* no blocking  */
 
     cfsetispeed(&newtio, BAUDRATE);
     cfsetospeed(&newtio, BAUDRATE);
@@ -73,26 +57,18 @@ int llopen(char port[20], bool aMode) {
     if (mode == TRANSMITTER) {
         while (TRUE) {
             /* enviar SET e esperar UA */
-
             numAttempts++;
-
             printf("Abrindo em modo Transmitter\n");
             if (numAttempts > 3) {
                 printf("Nao foi possivel estabelecer conexao\n");
                 return -1;
             }
 
-            printf("Tentativa: %d\n", numAttempts);
+            //printf("Tentativa: %d\n", numAttempts);
             sendSupFrame(fd, EM_CMD, SET);
-            printf("Terminou o send\n");
 
             // Esperar o UA
-            if (!receiveSupFrame(fd, receivedFrame, EM_CMD, UA, TRANSMITTER))
-                continue;
-            printf("recebido\n"); //TODO retirar
-            if (!(receivedFrame[CTRL_IND] == UA))
-                continue;
-            printf("recebido UA\n"); //TODO retirar
+            if (!receiveSupFrame(fd, receivedFrame, EM_CMD, UA, TRANSMITTER)) continue;
             printf("Conexao estabelecida em modo Transmitter\n");
             break;
         }
@@ -100,23 +76,52 @@ int llopen(char port[20], bool aMode) {
         printf("Abrindo em modo Receiver\n");
         /* espera o SET e devolve o UA */
         while (TRUE) {
-            if (!receiveSupFrame(fd, receivedFrame, EM_CMD, SET, RECEIVER))
-                continue;
-            printf("recebido\n"); //TODO retirar
-            if (!(receivedFrame[CTRL_IND] == SET))
-                continue;
-            printf("recebido set \n"); //TODO retirar
+            if (!receiveSupFrame(fd, receivedFrame, EM_CMD, SET, RECEIVER)) continue;
             sendSupFrame(fd, EM_CMD, UA);
             printf("Conexao estabelecida em modo Receiver\n");
             break;
         }
     }
+    signal(SIGALRM, alarmHandler);
+
     return fd;
+}
+
+int llclose(int fd) {
+    unsigned char *receivedFrame = malloc(5);
+    if (mode == TRANSMITTER) {
+        printf("Fechando em modo Trasmitter\n");
+        /* enviar DISC, esperar DISC e enviar UA e fecha conexao */
+        while (TRUE) {
+            sendSupFrame(fd, EM_CMD, DISC);
+            // Esperar o UA
+            if (!receiveSupFrame(fd, receivedFrame, EM_CMD, DISC, TRANSMITTER)) continue;
+            break;
+        }
+        sendSupFrame(fd, EM_CMD, UA);
+        close(fd);
+        printf("Trasmitter fechado com sucesso\n");
+    } else { // RECEIVER
+        /* espera DISC, envia DISC, espera UA e fecha conexao */
+        printf("Fechando em modo Receiver\n");
+        while (TRUE) {
+            if (!receiveSupFrame(fd, receivedFrame, EM_CMD, DISC, RECEIVER)) continue;
+            break;
+        }
+        while (TRUE) {
+            sendSupFrame(fd, EM_CMD, DISC);
+            // Esperar o UA
+            if (!receiveSupFrame(fd, receivedFrame, EM_CMD, UA, RECEIVER)) continue;
+            break;
+        }
+        close(fd);
+        printf("Receiver fechado com sucesso\n");
+    }
+    return 1;
 }
 
 int llwrite(int fd, char *buffer, int length) {
     int res;
-
     unsigned char bcc2 = calculateBCC(buffer, length);
     int bcc2_size = 1;
     int info_length = length + bcc2_size;
@@ -127,10 +132,8 @@ int llwrite(int fd, char *buffer, int length) {
     unsigned char *frameData = malloc(5);
     int sent = 0;
     int received_status;
-    int numAttempts = 0;
     while (!sent) {
         while (numAttempts < 3) {
-            numAttempts++;
             unsigned char *frame = malloc((info_length + 5));
             frame[FLAG_IND] = FR_FLAG;
             frame[ADDR_IND] = EM_CMD;
@@ -141,13 +144,13 @@ int llwrite(int fd, char *buffer, int length) {
             res = write(fd, frame, info_length + 5);
             free(frame);
             if (res < 0) {
-                perror("Error while writing frame\n");
+                perror("Erro ao enviar frame\n");
             }
             alarm(3);
             received_status = receiveSupFrame(fd, frameData, EM_CMD, REC_READY, TRANSMITTER);
             alarm(0);
             if (received_status == 3) {
-                printf("\nRejected frame! Resending...\n");
+                printf("\nFrame rejeitado. Reenviando...\n");
                 continue;
             } else if (received_status == 0) {
                 continue;
@@ -155,17 +158,17 @@ int llwrite(int fd, char *buffer, int length) {
             if (!(frameData[CTRL_IND] == REC_READY))
                 continue;
             sent = 1;
+            numAttempts = 0;
             break;
         }
         if (numAttempts >= 3) {
-            printf("Maximum attempts exceeded!\n");
+            printf("Excedido numero maximo de tentativas\n");
             return -1;
         }
     }
     free(stuffed_data);
     free(frameData);
     free(info);
-    //sigaction(SIGALRM,&old,NULL);
     updateSeq();
     return res;
 }
@@ -179,11 +182,10 @@ int llread(int fd, char *buffer) {
     unsigned char *destuffed_data;
 
     int rejected = 0;
-    int real_size = 0, data_size;//,rand;
+    int real_size = 0, data_size;
     // reset();
-    int numAttempts = 0;
+    //int numAttempts = 0;
     while (numAttempts < 3) {
-        //rand = random()%2;
         rejected = 0;
         alarm(3);
         if (!receiveInfoFrame(fd, frameData, &real_size)) {
@@ -200,8 +202,15 @@ int llread(int fd, char *buffer) {
         stuffed_data = memcpy(data, &final_frame[4], *&data_size);
         destuffed_data = destuffing(stuffed_data, &data_size);
         unsigned char received_bcc2 = destuffed_data[data_size - 1];
-//      unsigned char calculated_bcc2 = rand == 1 ? 0 : calculateBCC(destuffed_data,data_size-1);
-        unsigned char calculated_bcc2 = calculateBCC(destuffed_data, data_size - 1);
+        // Simula receptor nao envia resposta (20% de prob.)
+        if (random() % 5 == 4) {
+            printf("\n simulando erro de não enviar resposta\n");
+            alarm(0);
+            continue;
+        }
+        // Envia REJ com (20% de prob.)
+        unsigned char calculated_bcc2 = random() % 5 == 1 ? 0 : calculateBCC(destuffed_data,data_size-1);
+        //unsigned char calculated_bcc2 = calculateBCC(destuffed_data, data_size - 1);
         if (received_bcc2 != calculated_bcc2) {
             printf("\nBCC2 not recognized\n");
             rejected = 1;
@@ -210,6 +219,7 @@ int llread(int fd, char *buffer) {
         }
         sendSupFrame(fd, EM_CMD, REC_READY);
         if (!rejected) {
+            numAttempts = 0;
             memcpy(buffer, destuffed_data, data_size - 1);
             free(frameData);
             free(final_frame);
@@ -223,30 +233,5 @@ int llread(int fd, char *buffer) {
     return -1;
 }
 
-int llclose(int fd) {
-    unsigned char *receivedFrame = malloc(5);
-    if (mode == TRANSMITTER) {
-        printf("Fechando em modo Trasmitter\n");
-        /* enviar DISC, esperar DISC e enviar UA e fecha conexao */
-        sendSupFrame(fd, EM_CMD, DISC);
-        // Esperar o UA
-        if (!receiveSupFrame(fd, receivedFrame, EM_CMD, DISC, TRANSMITTER))
-            exit(-1);
-        sendSupFrame(fd, EM_CMD, UA);
-        close(fd);
-        printf("Trasmitter fechado com sucesso\n");
-    } else { // RECEIVER
-        /* espera DISC, envia DISC, espera UA e fecha conexao */
-        printf("Fechando em modo Receiver\n");
-        if (!receiveSupFrame(fd, receivedFrame, EM_CMD, DISC, RECEIVER))
-            exit(-1);
-        sendSupFrame(fd, EM_CMD, DISC);
-        // Esperar o UA
-        sendSupFrame(fd, EM_CMD, UA);
-        close(fd);
-        printf("Receiver fechado com sucesso\n");
-    }
-    return 1;
-}
 
 

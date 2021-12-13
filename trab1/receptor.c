@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 #include "linkLayer.c"
 #include "appLayer.h"
 
@@ -12,6 +13,7 @@ typedef enum SET_STATES_RECEIVE {
 } set_states_receive;
 
 int processControlPackage(unsigned char *buffer, const int expectControl, int control) {
+    printf("Pacote de controle: ");
     for (int i = 0; i < 20; ++i) {
         printf(" %02x", buffer[i]);
     }
@@ -33,7 +35,7 @@ int processControlPackage(unsigned char *buffer, const int expectControl, int co
             return -1;
         }
         int filenameSize = buffer[6];
-        char *filename  = malloc(filenameSize);
+        char *filename = malloc(filenameSize);
         memcpy(filename, &buffer[7], filenameSize);
         printf("Nome original : %s\n", filename);
         return 0;
@@ -43,8 +45,9 @@ int processControlPackage(unsigned char *buffer, const int expectControl, int co
     }
 }
 
-int processDataPackage(const unsigned char *buffer, const int expectedSeq,int bufferSize) {
-    for (int i = 0; i < 10; ++i) {
+int processDataPackage(const unsigned char *buffer, const int expectedSeq, int bufferSize) {
+    printf("Inicio do pacote de dados: ");
+    for (int i = 0; i < 20; ++i) {
         printf(" %02x", buffer[i]);
     }
     printf("\n");
@@ -63,7 +66,8 @@ int processDataPackage(const unsigned char *buffer, const int expectedSeq,int bu
 }
 
 int main(int argc, char **argv) {
-    if (argc <2) {
+    srand(time(NULL));
+    if (argc < 2) {
         perror("Usage: ./receptor <port> <filename>");
         exit(-1);
     }
@@ -88,27 +92,32 @@ int main(int argc, char **argv) {
         //le pacote de inicio
         switch (state) {
             case INIT: {
-                if (processControlPackage(buffer, APP_START, control) == 0) {
+                int res = processControlPackage(buffer, APP_START, control);
+                if (res == 0) {
                     state = DATA;
+                } else {
+                    exit(-1);
                 }
                 continue;
             }
             case DATA: {
                 if (control == APP_DATA) {
-                    int size = processDataPackage(buffer, expectedSeq,  bufferSize);
+                    int size = processDataPackage(buffer, expectedSeq, bufferSize);
                     if (size < 0) {
-                        perror("Erro ao receber pacote de dados");
                         exit(-1);
                     }
-                    if (fwrite(&buffer[4], 1, size, file) <0 ) {
+                    if (fwrite(&buffer[4], 1, size, file) < 0) {
                         perror("Erro ao gravar pacote de dados");
                         exit(-1);
                     }
                     expectedSeq++;
                 } else if (control == APP_END) {
-                    if (processControlPackage(buffer, APP_END, control) == 0) {
+                    int res = processControlPackage(buffer, APP_END, control);
+                    if (res == 0) {
                         state = END;
                         printf("Arquivo salvo com sucesso: %s", filename);
+                    } else {
+                        exit(-1);
                     }
                     continue;
                 }

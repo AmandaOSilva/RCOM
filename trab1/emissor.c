@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 #include "linkLayer.c"
 #include "appLayer.h"
 
@@ -25,9 +26,13 @@ void sendControlPackage(const int fd, const char *filename, const int bufferSize
     for (int i = 0; i < 10; ++i) {
         printf(" %02x", packageFrame[i]);
     }
+    printf("\n");
     printf("Nome: %s\n", filename);
 
-    llwrite(fd, packageFrame, packageFrameSize);
+    if (llwrite(fd, packageFrame, packageFrameSize) < 0) {
+        perror("Erro ao enviar");
+        exit(-1);
+    };
 }
 
 void sendDataPackage(const int fd, const char *buffer, const int packageSeq, const int packageSize) {
@@ -60,7 +65,7 @@ FILE *openFile(const char *filename, int *bufferSize) {
 }
 
 void sendData(int fd, int bufferSize, FILE *file) {//Envia  dados
-
+//    printf(" \n");
     int qtyPackage = 1;
     int packageSize = BYTES_PER_PACKAGE - INFO_LENGTH;
     if (bufferSize > packageSize) {
@@ -80,12 +85,12 @@ void sendData(int fd, int bufferSize, FILE *file) {//Envia  dados
         printf("Leu arquivo\n");
         sendDataPackage(fd, buffer, packageSeq, packageSize);
         free(buffer);
-
     }
 }
 
 int main(int argc, char **argv) {
-    if (argc <2) {
+    srand(time(NULL));
+    if (argc < 2) {
         perror("Usage: ./emissor <port> <filename>");
         exit(-1);
     }
