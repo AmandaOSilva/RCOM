@@ -54,7 +54,6 @@ void sendDataPackage(const int fd, const char *buffer, const int packageSeq, con
     llwrite(fd, packageFrame, packageFrameSize);
 }
 
-
 FILE *openFile(const char *filename, int *bufferSize) {
     FILE *file = fopen(filename, "rb");
 

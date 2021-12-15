@@ -40,7 +40,7 @@ int processControlPackage(unsigned char *buffer, const int expectControl, int co
         printf("Nome original : %s\n", filename);
         return 0;
     } else {
-        printf("Pacote rejeitado. Esperado: %d, Recebido: %d\n", expectControl, control);
+        printf("Pacote rejeitado. Esperado: %02x, Recebido: %02x\n", expectControl, control);
         return -1;
     }
 }

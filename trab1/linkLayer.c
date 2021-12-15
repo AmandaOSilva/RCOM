@@ -94,7 +94,7 @@ int llclose(int fd) {
         /* enviar DISC, esperar DISC e enviar UA e fecha conexao */
         while (TRUE) {
             sendSupFrame(fd, EM_CMD, DISC);
-            // Esperar o UA
+            // Espera DISC
             if (!receiveSupFrame(fd, receivedFrame, EM_CMD, DISC, TRANSMITTER)) continue;
             break;
         }
@@ -105,10 +105,12 @@ int llclose(int fd) {
         /* espera DISC, envia DISC, espera UA e fecha conexao */
         printf("Fechando em modo Receiver\n");
         while (TRUE) {
+            // Espera o DISC
             if (!receiveSupFrame(fd, receivedFrame, EM_CMD, DISC, RECEIVER)) continue;
             break;
         }
         while (TRUE) {
+            // Envia o DISC
             sendSupFrame(fd, EM_CMD, DISC);
             // Esperar o UA
             if (!receiveSupFrame(fd, receivedFrame, EM_CMD, UA, RECEIVER)) continue;
@@ -123,25 +125,25 @@ int llclose(int fd) {
 int llwrite(int fd, char *buffer, int length) {
     int res;
     unsigned char bcc2 = calculateBCC(buffer, length);
-    int bcc2_size = 1;
-    int info_length = length + bcc2_size;
-    unsigned char *info = malloc((info_length));
+    int bcc2Size = 1;
+    int infoLength = length + bcc2Size;
+    unsigned char *info = malloc((infoLength));
     memcpy(info, buffer, length);
-    memcpy(&info[length], &bcc2, bcc2_size);
-    unsigned char *stuffed_data = stuffing(info, &info_length);
+    memcpy(&info[length], &bcc2, bcc2Size);
+    unsigned char *stuffedData = stuffing(info, &infoLength);
     unsigned char *frameData = malloc(5);
     int sent = 0;
     int received_status;
     while (!sent) {
         while (numAttempts < 3) {
-            unsigned char *frame = malloc((info_length + 5));
+            unsigned char *frame = malloc((infoLength + 5));
             frame[FLAG_IND] = FR_FLAG;
             frame[ADDR_IND] = EM_CMD;
             frame[CTRL_IND] = SEND_SEQ;
             frame[BCC_IND] = frame[ADDR_IND] ^ frame[CTRL_IND];
-            memcpy(&frame[4], stuffed_data, info_length);
-            frame[4 + info_length] = FR_FLAG;
-            res = write(fd, frame, info_length + 5);
+            memcpy(&frame[4], stuffedData, infoLength);
+            frame[4 + infoLength] = FR_FLAG;
+            res = write(fd, frame, infoLength + 5);
             free(frame);
             if (res < 0) {
                 perror("Erro ao enviar frame\n");
@@ -155,7 +157,7 @@ int llwrite(int fd, char *buffer, int length) {
             } else if (received_status == 0) {
                 continue;
             }
-            if (!(frameData[CTRL_IND] == REC_READY))
+            if (frameData[CTRL_IND] != REC_READY)
                 continue;
             sent = 1;
             numAttempts = 0;
@@ -166,7 +168,7 @@ int llwrite(int fd, char *buffer, int length) {
             return -1;
         }
     }
-    free(stuffed_data);
+    free(stuffedData);
     free(frameData);
     free(info);
     updateSeq();
@@ -175,9 +177,7 @@ int llwrite(int fd, char *buffer, int length) {
 
 int llread(int fd, char *buffer) {
     /* read() informacao (I) */
-    unsigned char *frameData = malloc(
-            BYTES_PER_PACKAGE * 2);
-    unsigned char *final_frame;
+    unsigned char *frameData = malloc(BYTES_PER_PACKAGE * 2);
     unsigned char *stuffed_data;
     unsigned char *destuffed_data;
 
@@ -202,6 +202,7 @@ int llread(int fd, char *buffer) {
         stuffed_data = memcpy(data, &final_frame[4], *&data_size);
         destuffed_data = destuffing(stuffed_data, &data_size);
         unsigned char received_bcc2 = destuffed_data[data_size - 1];
+        /*
         // Simula receptor nao envia resposta (20% de prob.)
         if (random() % 5 == 4) {
             printf("\n simulando erro de não enviar resposta\n");
@@ -216,7 +217,8 @@ int llread(int fd, char *buffer) {
             rejected = 1;
             sendSupFrame(fd, EM_CMD, REC_REJECTED);
             continue;
-        }
+        }   */
+
         sendSupFrame(fd, EM_CMD, REC_READY);
         if (!rejected) {
             numAttempts = 0;
