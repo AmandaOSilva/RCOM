@@ -148,7 +148,7 @@ int llwrite(int fd, char *buffer, int length) {
             if (res < 0) {
                 perror("Erro ao enviar frame\n");
             }
-            alarm(3);
+            alarm(10);
             received_status = receiveSupFrame(fd, frameData, EM_CMD, REC_READY, TRANSMITTER);
             alarm(0);
             if (received_status == 3) {
@@ -187,7 +187,7 @@ int llread(int fd, char *buffer) {
     //int numAttempts = 0;
     while (numAttempts < 3) {
         rejected = 0;
-        alarm(3);
+        alarm(10);
         if (!receiveInfoFrame(fd, frameData, &real_size)) {
             alarm(0);
             sendSupFrame(fd, EM_CMD, REC_REJECTED);
@@ -217,8 +217,8 @@ int llread(int fd, char *buffer) {
             rejected = 1;
             sendSupFrame(fd, EM_CMD, REC_REJECTED);
             continue;
-        }   */
-
+        }
+        */
         sendSupFrame(fd, EM_CMD, REC_READY);
         if (!rejected) {
             numAttempts = 0;

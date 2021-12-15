@@ -83,7 +83,7 @@ int receiveSupFrame(int fd, unsigned char *frame, unsigned char addr, unsigned c
     verify = 0;
     alarmFlag = 0;
     if ((mode == TRANSMITTER) && (cmd == UA || cmd == DISC)) {
-        alarm(3);
+        alarm(10);
     }
 
     int fail = 0;
