@@ -105,9 +105,7 @@ int receiveSupFrame(int fd, unsigned char *frame, unsigned char addr, unsigned c
                 frame[FLAG_IND] = input;
                 if (input == FR_FLAG)
                     set_machine = FLAG_RCV;
-
                 break;
-
             case FLAG_RCV:
                 frame[ADDR_IND] = input;
                 if (input == addr)
@@ -115,7 +113,6 @@ int receiveSupFrame(int fd, unsigned char *frame, unsigned char addr, unsigned c
                 else if (input != FR_FLAG)
                     set_machine = START;
                 break;
-
             case A_RCV:
                 frame[CTRL_IND] = input;
                 if (input == REC_READY) {
@@ -189,12 +186,12 @@ unsigned char *stuffing(unsigned char *frame, unsigned int *size) {
     int offset = 0;
     for (size_t i = 0; i < *size; i++) {
         if (frame[i] == FR_FLAG) {
-            result[i + offset] = ESC_FLAG;
-            result[i + offset + 1] = FR_SUB;
+            result[i + offset] = ESC_FLAG;// 0x7d
+            result[i + offset + 1] = FR_SUB; //0x5e
             offset += 1;
         } else if (frame[i] == ESC_FLAG) {
-            result[offset + i] = ESC_FLAG;
-            result[1 + offset + i] = ESC_SUB;
+            result[offset + i] = ESC_FLAG;// 0x7d
+            result[offset + i + 1] = ESC_SUB;//0x5d
             offset += 1;
         } else {
             result[(i) + offset] = frame[i];

@@ -18,7 +18,7 @@ int llopen(char port[20], bool aMode) {
     struct termios oldtio, newtio;
     printf("Modo: %d\n", mode);
 
-    int fd, res, size;
+    int fd;
     volatile int STOP = FALSE;
 
     fd = open(port, O_RDWR | O_NOCTTY);
@@ -40,7 +40,7 @@ int llopen(char port[20], bool aMode) {
     /* set input mode (non-canonical, no echo,...) */
     newtio.c_lflag = 0;
 
-    newtio.c_cc[VTIME] = 1; /* inter-character timer unused */
+    newtio.c_cc[VTIME] = 1; /* inter-character timer  */
     newtio.c_cc[VMIN] = 0;  /* no blocking  */
 
     cfsetispeed(&newtio, BAUDRATE);
@@ -51,13 +51,12 @@ int llopen(char port[20], bool aMode) {
         perror("tcsetattr");
         exit(-1);
     }
-
+    signal(SIGALRM, alarmHandler);
     int numAttempts = 0;
     unsigned char *receivedFrame = malloc(5);
     if (mode == TRANSMITTER) {
         while (TRUE) {
             /* enviar SET e esperar UA */
-            numAttempts++;
             printf("Abrindo em modo Transmitter\n");
             if (numAttempts > 3) {
                 printf("Nao foi possivel estabelecer conexao\n");
@@ -65,6 +64,7 @@ int llopen(char port[20], bool aMode) {
             }
 
             //printf("Tentativa: %d\n", numAttempts);
+            //Envia SET
             sendSupFrame(fd, EM_CMD, SET);
 
             // Esperar o UA
@@ -82,7 +82,6 @@ int llopen(char port[20], bool aMode) {
             break;
         }
     }
-    signal(SIGALRM, alarmHandler);
 
     return fd;
 }
@@ -211,14 +210,14 @@ int llread(int fd, char *buffer) {
         }
         // Envia REJ com (20% de prob.)
         unsigned char calculated_bcc2 = random() % 5 == 1 ? 0 : calculateBCC(destuffed_data,data_size-1);
-        //unsigned char calculated_bcc2 = calculateBCC(destuffed_data, data_size - 1);
+ */
+        unsigned char calculated_bcc2 = calculateBCC(destuffed_data, data_size - 1);
         if (received_bcc2 != calculated_bcc2) {
             printf("\nBCC2 not recognized\n");
             rejected = 1;
             sendSupFrame(fd, EM_CMD, REC_REJECTED);
             continue;
         }
-        */
         sendSupFrame(fd, EM_CMD, REC_READY);
         if (!rejected) {
             numAttempts = 0;
